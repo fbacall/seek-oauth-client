@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Example SEEK OAuth Client Application</title>
+  <meta charset="UTF-8">
+  <meta name="author" content="Finn Bacall">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+</head>
+<body>
+
+<div class="container">
+  <h1>SEEK OAuth Client Application</h1>
+  <div class="row">
+    <div class="col-sm-3">
+      <div class="form-group">
+        <label for="client-id">Client ID</label><br/>
+        <input id="client-id" placeholder="Client ID" type="text" class="form-control"/>
+      </div>
+      <div class="form-group">
+        <label for="seek-url">SEEK URL</label><br/>
+        <input id="seek-url" value="http://localhost:3000" type="text" class="form-control"/>
+      </div>
+      <div class="form-group">
+        <label for="this-url">This application's URL</label><br/>
+        <input id="this-url" value="http://localhost:8080" type="text" class="form-control"/>
+      </div>
+
+      <button id="authorize" class="btn btn-primary">Authorize</button>
+    </div>
+    <div class="col-sm-9">
+      <pre id="output"></pre>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  function codeVerifier() {
+    Math.random().toString(36).substring(2, 15) +
+    Math.random().toString(36).substring(2, 15);
+  }
+
+  function state() {
+    Math.random().toString(16).substr(2,15) +
+            Math.random().toString(16).substr(2,15) +
+            Math.random().toString(16).substr(2,6);
+  }
+
+  async function codeChallenge(message) {
+    // encode as UTF-8
+    const msgBuffer = new TextEncoder('utf-8').encode(message);
+
+    // hash the message
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+
+    // convert ArrayBuffer to Array
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+
+    // convert bytes to hex string
+    const hashHex = hashArray.map(b => ('00' + b.toString(16)).slice(-2)).join('');
+    return hashHex;
+  }
+
+  function redirect() {
+    const seekUrl = document.getElementById('seek-url').value;
+    const clientId = document.getElementById('client-id').value;
+    const cbUrl = document.getElementById('this-url').value;
+
+    const state = state();
+    const cv = codeVerifier();
+    codeChallenge(cv).then(function (cc) {
+      localStorage.setItem('seek-oauth-cv', cv);
+      localStorage.setItem('seek-oauth-cc', cc);
+      localStorage.setItem('seek-oauth-state', state);
+      window.location = seekUrl + '/oauth/authorize?client_id=' + clientId +
+              '&code_challenge=' + cc +
+              '&code_challenge_method=S256&redirect_uri=' + cbUrl +
+              '&response_type=code&scope=read&state=' + state;
+    });
+  }
+
+  async function requestToken() {
+    const seekUrl = document.getElementById('seek-url').value;
+    const clientId = document.getElementById('client-id').value;
+    const cbUrl = document.getElementById('this-url').value;
+    const code = URL(window.location).searchParams.get("code");
+
+    const res = await fetch(seekUrl + '/oauth/token', {
+      method: 'POST',
+      body: JSON.stringify({
+        client_id: clientId,
+        //client_secret: "[FILTERED]",
+        code: code,
+        code_verifier: localStorage.getItem('seek-oauth-cv'),
+        grant_type: "authorization_code",
+        redirect_uri: cbUrl
+      })
+  });
+
+  return await res.json(); // parses JSON response into native JavaScript objects
+  }
+</script>
+</body>
+</html>
