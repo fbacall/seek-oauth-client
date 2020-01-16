@@ -29,15 +29,25 @@
 
       <div class="form-group">
         <button id="authorize" onclick="authorize()" class="btn btn-primary">Authorize</button>
-        <button id="save" onclick="saveSettings()" class="btn btn-default">Save Config</button>
       </div>
+
+      <div class="form-group">
+        <button id="save" onclick="saveSettings()" class="btn btn-default">Save Config</button>
+        <button id="load" onclick="loadSettings()" class="btn btn-default">Load Config</button>
+      </div>
+
+      <div class="form-group">
+        <button id="revoke" onclick="resetState()" class="btn btn-default">Reset State</button>
+      </div>
+
+      <p class="help-block" id="status"></p>
     </div>
     <div class="col-sm-9">
-      <h4>Status</h4>
-      <pre id="status"></pre>
+      <h4>Token</h4>
+      <pre id="token"></pre>
 
       <h4>Current Person</h4>
-      <pre id="output">Not authenticated</pre>
+      <pre id="output"></pre>
     </div>
   </div>
 
@@ -57,32 +67,37 @@
   function setToken(accessToken) {
     _token.token = accessToken.access_token;
     _token.expiry = new Date((accessToken.created_at + accessToken.expires_in) * 1000);
+    token('Authenticated with:\n  Access token: ' + _token.token + ' \n  Expires: ' + _token.expiry + '');
+  }
+
+  // Generate a random hex string
+  function state() {
+    const array = new Uint8Array(16);
+    window.crypto.getRandomValues(array);
+    return Array.from(array).map(e => e.toString(16)).join('');
+  }
+
+  function urlSafeBase64Encode(string) {
+    return btoa(string).replace(/\//g, '_').replace(/\+/g, '-').replace(/=/g,'');
+  }
+
+  function urlEncode(data) {
+    return Object.keys(data).map(key => encodeURIComponent(key) + '=' + encodeURIComponent(data[key])).join('&')
   }
 
   // Generate a code verifier, which is a random 64 character string.
   function codeVerifier() {
-    let cv = '';
-    const dictionary = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~';
-    for (let i = 0; i < 64; i++) {
-      cv += dictionary.charAt(Math.floor(Math.random() * dictionary.length));
-    }
-    return cv;
-  }
-
-  // Generate a hex string
-  function state() {
-    return Math.random().toString(16).substr(2,15) +
-           Math.random().toString(16).substr(2,15) +
-           Math.random().toString(16).substr(2,6);
+    const array = new Uint8Array(32);
+    window.crypto.getRandomValues(array);
+    return urlSafeBase64Encode(String.fromCharCode.apply(null, array));
   }
 
   // Generate a code challenge by SHA-256 hashing the codeVerifier, then URL-safe Base-64 encoding, with trailing = removed.
   async function codeChallenge(cv) {
-    const msgUint8 = new TextEncoder().encode(cv);                           // encode as (utf-8) Uint8Array
+    const msgUint8 = new TextEncoder().encode(cv);                                // encode as (utf-8) Uint8Array
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);           // hash the message
     const hashArray = Array.from(new Uint8Array(hashBuffer));                     // convert buffer to byte array
-    const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(hashArray)));
-    return b64.replace(/\//g, '_').replace(/\+/g, '-').replace(/=/g,'');
+    return urlSafeBase64Encode(String.fromCharCode.apply(null, hashArray));
   }
 
   // Redirect user to authorize endpoint
@@ -91,17 +106,23 @@
     const seekUrl = document.getElementById('seek-url').value;
     const clientId = document.getElementById('client-id').value;
     const cbUrl = document.getElementById('this-url').value;
-
     const s = state();
     const cv = codeVerifier();
-    codeChallenge(cv).then(function (cc) {
+
+    return codeChallenge(cv).then(function (cc) {
       localStorage.setItem('seek-oauth-cv', cv);
       localStorage.setItem('seek-oauth-cc', cc);
       localStorage.setItem('seek-oauth-state', s);
-      window.location = seekUrl + '/oauth/authorize?client_id=' + clientId +
-              '&code_challenge=' + cc +
-              '&code_challenge_method=S256&redirect_uri=' + cbUrl +
-              '&response_type=code&scope=read&state=' + s;
+      const data = {
+        client_id: clientId,
+        code_challenge: cc,
+        code_challenge_method: 'S256',
+        scope: 'read',
+        response_type: 'code',
+        redirect_uri: cbUrl,
+        state: s
+      };
+      window.location = seekUrl + '/oauth/authorize?' + urlEncode(data);
     });
   }
 
@@ -111,20 +132,20 @@
     const seekUrl = document.getElementById('seek-url').value;
     const clientId = document.getElementById('client-id').value;
     const cbUrl = document.getElementById('this-url').value;
-    const body = {
+    const data = {
       client_id: clientId,
       code: code,
       code_verifier: localStorage.getItem('seek-oauth-cv'),
       grant_type: "authorization_code",
       redirect_uri: cbUrl
     };
-    const formBody = Object.keys(body).map(key => encodeURIComponent(key) + '=' + encodeURIComponent(body[key])).join('&');
     const res = await fetch(seekUrl + '/oauth/token', {
       method: 'POST',
       cors: true,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formBody
+      body: urlEncode(data)
     });
+    status('');
 
     return await res.json();
   }
@@ -153,54 +174,64 @@
     document.getElementById('status').innerText = message;
   }
 
+  function token(message) {
+    document.getElementById('token').innerText = message;
+  }
+
   function output(message) {
     document.getElementById('output').innerText = message;
   }
 
   function saveSettings() {
-    const seekUrl = document.getElementById('seek-url').value;
-    const clientId = document.getElementById('client-id').value;
-    const cbUrl = document.getElementById('this-url').value;
-    localStorage.setItem('seek-oauth-url', seekUrl);
-    localStorage.setItem('seek-oauth-client-id', clientId);
-    localStorage.setItem('seek-oauth-this-url', cbUrl);
+    localStorage.setItem('seek-oauth-url', document.getElementById('seek-url').value);
+    localStorage.setItem('seek-oauth-client-id', document.getElementById('client-id').value);
+    localStorage.setItem('seek-oauth-this-url', document.getElementById('this-url').value);
     status('Config saved!');
   }
 
   function loadSettings() {
-    if (!localStorage.getItem('seek-oauth-url'))
-      return;
     document.getElementById('seek-url').value = localStorage.getItem('seek-oauth-url');
     document.getElementById('client-id').value = localStorage.getItem('seek-oauth-client-id');
     document.getElementById('this-url').value = localStorage.getItem('seek-oauth-this-url');
-    status('Config loaded');
+    status('Config loaded!');
+  }
+
+  function resetState() {
+    localStorage.removeItem('seek-oauth-token');
+    localStorage.removeItem('seek-oauth-cv');
+    localStorage.removeItem('seek-oauth-cc');
+    localStorage.removeItem('seek-oauth-state');
+    status('State reset!');
+    let url = new URL(window.location);
+    url.search = '';
+    window.location = url;
   }
 
   window.addEventListener('load', function () {
-    loadSettings();
-    status('Page loaded');
+    status('Page loaded!');
+    if (localStorage.getItem('seek-oauth-url'))
+      loadSettings();
     const state = new URL(window.location).searchParams.get("state");
     const storedState = localStorage.getItem('seek-oauth-state');
     const storedToken = localStorage.getItem('seek-oauth-token');
     if (storedToken)
       setToken(JSON.parse(storedToken));
 
-    // If token is present and valid
-    if (getToken()) {
-      status('Authenticated with:\n  Access token: ' + _token.token + ' \n  Expires: ' + _token.expiry + '');
-      displayCurrentPerson(getToken());
-    } else if (state && state === storedState) { // If in callback phase
+    if (state && state === storedState) { // If in callback phase
       const code = new URL(window.location).searchParams.get("code");
       requestToken(code).then(function (token) {
-        status(JSON.stringify(token, null, 2));
         if (token.access_token) {
           localStorage.setItem('seek-oauth-token', JSON.stringify(token));
           setToken(token);
           displayCurrentPerson(getToken());
+        } else {
+          token('Error: \n' + JSON.stringify(token, null, 2));
         }
       });
+    } else if (getToken()) { // If token is present and valid
+      displayCurrentPerson(getToken());
     } else {
-      status('Not authenticated - Fill out config and click "Authorize"');
+      token('Not authenticated.');
     }
   });
 </script>
