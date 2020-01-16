@@ -29,15 +29,12 @@
 
       <div class="form-group">
         <button id="authorize" onclick="authorize()" class="btn btn-primary">Authorize</button>
+        <button id="revoke" onclick="resetState()" class="btn btn-default">Clear Token/State</button>
       </div>
 
       <div class="form-group">
         <button id="save" onclick="saveSettings()" class="btn btn-default">Save Config</button>
         <button id="load" onclick="loadSettings()" class="btn btn-default">Load Config</button>
-      </div>
-
-      <div class="form-group">
-        <button id="revoke" onclick="resetState()" class="btn btn-default">Reset State</button>
       </div>
 
       <p class="help-block" id="status"></p>
@@ -47,7 +44,7 @@
       <pre id="token"></pre>
 
       <h4>Current Person</h4>
-      <pre id="output"></pre>
+      <pre id="output">n/a</pre>
     </div>
   </div>
 
@@ -67,7 +64,7 @@
   function setToken(accessToken) {
     _token.token = accessToken.access_token;
     _token.expiry = new Date((accessToken.created_at + accessToken.expires_in) * 1000);
-    token('Authenticated with:\n  Access token: ' + _token.token + ' \n  Expires: ' + _token.expiry + '');
+    tokenInfo('Authenticated with:\n  Access token: ' + _token.token + ' \n  Expires: ' + _token.expiry + '');
   }
 
   // Generate a random hex string
@@ -174,7 +171,7 @@
     document.getElementById('status').innerText = message;
   }
 
-  function token(message) {
+  function tokenInfo(message) {
     document.getElementById('token').innerText = message;
   }
 
@@ -225,13 +222,13 @@
           setToken(token);
           displayCurrentPerson(getToken());
         } else {
-          token('Error: \n' + JSON.stringify(token, null, 2));
+          tokenInfo('Error: \n' + JSON.stringify(token, null, 2));
         }
       });
     } else if (getToken()) { // If token is present and valid
       displayCurrentPerson(getToken());
     } else {
-      token('Not authenticated.');
+      tokenInfo('Not authenticated.');
     }
   });
 </script>
